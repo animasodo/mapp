@@ -74,9 +74,12 @@ int main(int argc, char *argv[]) {
 
         oldChar = fin.peek();
 
+        // header
+        buffer[outSize++] = 0; // type: map
         buffer[outSize++] = width;
         buffer[outSize++] = height;
 
+        // map data
         for (unsigned int i = 0; i <= finSize; i++) {
             currentChar = fin.get();
             if (currentChar == oldChar && counter < 15) {
