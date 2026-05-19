@@ -7,7 +7,7 @@
 using namespace std;
 
 unsigned char currentChar, oldChar, buffer[65536];
-unsigned int counter = 0, outSize = 0, finSize;
+unsigned int counter = 0, outSize = 0, compressedLength = 0, finSize;
 int width = 0, height = 0;
 string filenameOutput;
 
@@ -75,21 +75,32 @@ int main(int argc, char *argv[]) {
         oldChar = fin.peek();
 
         // header
-        buffer[outSize++] = 0; // type: map
-        buffer[outSize++] = width;
-        buffer[outSize++] = height;
+        buffer[outSize++] = 0x4d;   // M
+        buffer[outSize++] = 0x50;   // P
+        // size
+        buffer[outSize++] = (uint8_t)width;
+        buffer[outSize++] = (uint8_t)height;
+        // length, left blank until counted
+        buffer[outSize++] = 0;
+        buffer[outSize++] = 0;
 
         // map data
         for (unsigned int i = 0; i <= finSize; i++) {
             currentChar = fin.get();
+
             if (currentChar == oldChar && counter < 15) {
                 counter++;
             }else {
                 buffer[outSize++] = (counter << 4) + oldChar;
                 counter = 0;
+                compressedLength++;
             }
             oldChar = currentChar;
         }
+
+        // compressed map length (little endian)
+        buffer[4] = (uint8_t)(((uint16_t)compressedLength) & 0x00FF);
+        buffer[5] = (uint8_t)((((uint16_t)compressedLength) & 0xFF00) >> 8);
 
         fout.write(reinterpret_cast<const ostream::char_type *>(buffer), outSize);
 
