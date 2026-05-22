@@ -7,6 +7,8 @@ endif
 CXX     = g++
 CXXFLAGS = -Wall -Wextra
 
+all: $(TARGET)
+
 $(TARGET): main.cpp
 	$(CXX) $(CXXFLAGS) -o $(TARGET) main.cpp
 
