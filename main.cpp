@@ -10,6 +10,8 @@ using json = nlohmann::json;
 unsigned char currentChar, oldChar, buffer[65536];
 unsigned int counter = 0, outSize = 0, compressedLength = 0, finSize;
 int width = 0, height = 0;
+bool use_list = false;
+map<string, int> name_map;
 string filenameOutput;
 
 const string HELP = "Usage:\n        mapp [infile] [options]\n"
@@ -18,7 +20,8 @@ const string HELP = "Usage:\n        mapp [infile] [options]\n"
                     "    -o  outputs with custom filename.\n"
                     "    -w  sets width.\n"
                     "    -t  sets height.\n"
-                    "    -j  imports a json file.\n";
+                    "    -j  imports a json file.\n"
+                    "    -l  use csv for storing ids instead of map names.\n";
 
 // structs
 typedef struct{
@@ -49,9 +52,9 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    ifstream fin(argv[1]);
-    if (!fin.is_open()) {
-        cerr << "Error: Can't open file." << endl;
+    ifstream file_in(argv[1]);
+    if (!file_in.is_open()) {
+        cerr << "Error: Can't open map file." << endl;
         return 1;
     }
 
@@ -101,32 +104,56 @@ int main(int argc, char *argv[]) {
             warps = jsonData["warps"].get<vector<warp>>();
             jsonFile.close();
         }
+        if (argument == "-l") {
+            use_list = true;
+            ifstream name_list(argv[++a]);
+            if (!name_list.is_open()) {
+                cerr << "Error: Can't open name list." << endl;
+                return 1;
+            }
+
+            string line;
+            while (getline(name_list, line)) {
+                istringstream ss(line);
+                string key;
+                string valueStr;
+
+                if (getline(ss, key, ',') && getline(ss, valueStr)) {
+                    try {
+                        name_map[key] = stoi(valueStr);
+                    } catch (const invalid_argument&) {
+                        cerr << "Warning: Invalid value " << valueStr << " for key " << key << "." << endl;
+                    }
+                }
+            }
+            name_list.close();
+        }
     }
 
     if (width == 0 || height == 0) {
-        cerr << "Error: Width and height must be set.";
+        cerr << "Error: Width and height must be set." << endl;
         return 1;
     }
 
-    ofstream fout(filenameOutput);
+    ofstream file_out(filenameOutput);
 
     finSize = filesystem::file_size(argv[1]);
 
-    oldChar = fin.peek();
+    oldChar = file_in.peek();
 
     // header
     buffer[outSize++] = 0x4d; // M
     buffer[outSize++] = 0x50; // P
     // size
-    buffer[outSize++] = (uint8_t) width;
-    buffer[outSize++] = (uint8_t) height;
+    buffer[outSize++] = static_cast<uint8_t>(width);
+    buffer[outSize++] = static_cast<uint8_t>(height);
     // length, left blank until counted
     buffer[outSize++] = 0;
     buffer[outSize++] = 0;
 
     // map data
     for (unsigned int i = 0; i <= finSize; i++) {
-        currentChar = fin.get();
+        currentChar = file_in.get();
 
         if (currentChar == oldChar && counter < 15) {
             counter++;
@@ -139,14 +166,23 @@ int main(int argc, char *argv[]) {
     }
 
     // compressed map length (little endian)
-    buffer[4] = (uint8_t) (((uint16_t) compressedLength) & 0x00FF);
-    buffer[5] = (uint8_t) ((((uint16_t) compressedLength) & 0xFF00) >> 8);
+    buffer[4] = static_cast<uint8_t>(static_cast<uint16_t>(compressedLength) & 0x00FF);
+    buffer[5] = static_cast<uint8_t>((static_cast<uint16_t>(compressedLength) & 0xFF00) >> 8);
 
     // warps
     for (warp w : warps) {
         buffer[outSize++] = 0x57; // W
-        for (int i = 0; i <= (int)w.name.length(); i++) {
-            buffer[outSize++] = w.name[i];
+        if (use_list == true) {
+            if (name_map.find(w.name) != name_map.end()) {
+                buffer[outSize++] = static_cast<uint8_t>(name_map[w.name]);
+            } else {
+                cerr << "Error: Key " << w.name << " not found." << endl;
+                return 1;
+            }
+        }else {
+            for (int i = 0; i <= static_cast<int>(w.name.length()); i++) {
+                buffer[outSize++] = w.name[i];
+            }
         }
         buffer[outSize++] = w.src_x;
         buffer[outSize++] = w.src_y;
@@ -154,9 +190,9 @@ int main(int argc, char *argv[]) {
         buffer[outSize++] = w.dst_y;
     }
 
-    fout.write(reinterpret_cast<const ostream::char_type *>(buffer), outSize);
+    file_out.write(reinterpret_cast<const ostream::char_type *>(buffer), outSize);
 
-    fin.close();
-    fout.close();
+    file_in.close();
+    file_out.close();
     return 0;
 }
