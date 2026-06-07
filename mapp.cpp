@@ -21,7 +21,7 @@ const string HELP = "Usage:\n        mapp [infile] [options]\n"
                     "    -w  sets width.\n"
                     "    -t  sets height.\n"
                     "    -j  imports a json file.\n"
-                    "    -l  use csv for storing ids instead of map names.\n";
+                    "    -l  imports a csv for storing ids instead of map names.\n";
 
 // structs
 typedef struct{

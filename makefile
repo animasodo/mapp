@@ -1,16 +1,21 @@
 ifeq ($(OS), Windows_NT)
-    TARGET = mapp.exe
+    TARGET       = mapp.exe
+    TARGET_LISTER = mapp-lister.exe
 else
-    TARGET = mapp
+    TARGET       = mapp
+    TARGET_LISTER = mapp-lister
 endif
 
-CXX     = g++
+CXX      = g++
 CXXFLAGS = -Wall -Wextra
 
-all: $(TARGET)
+all: $(TARGET) $(TARGET_LISTER)
 
-$(TARGET): main.cpp
-	$(CXX) $(CXXFLAGS) -o $(TARGET) main.cpp
+$(TARGET): mapp.cpp
+	$(CXX) $(CXXFLAGS) -o $(TARGET) mapp.cpp
+
+$(TARGET_LISTER): mapp-lister.cpp
+	$(CXX) $(CXXFLAGS) -o $(TARGET_LISTER) mapp-lister.cpp
 
 clean:
-	rm -f $(TARGET)
+	rm -f $(TARGET) $(TARGET_LISTER)
