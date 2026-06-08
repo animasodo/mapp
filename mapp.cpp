@@ -190,6 +190,9 @@ int main(int argc, char *argv[]) {
         buffer[outSize++] = w.dst_y;
     }
 
+    // end of file
+    buffer[outSize++] = 0x45; // E
+
     file_out.write(reinterpret_cast<const ostream::char_type *>(buffer), outSize);
 
     file_in.close();
