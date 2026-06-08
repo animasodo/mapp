@@ -155,7 +155,14 @@ int main(int argc, char *argv[]) {
 
     finSize = filesystem::file_size(argv[1]);
 
-    oldChar = file_in.peek();
+    int currentByte = file_in.get();
+    if (currentByte == EOF) {
+        cerr << "Error: Input file is empty." << endl;
+        return 1;
+    }
+
+    oldChar = static_cast<unsigned char>(currentByte);
+    counter = 1;
 
     // header
     buffer[outSize++] = 0x4d; // M
@@ -168,18 +175,21 @@ int main(int argc, char *argv[]) {
     buffer[outSize++] = 0;
 
     // map data
-    for (unsigned int i = 0; i <= finSize; i++) {
-        currentChar = file_in.get();
+    while ((currentByte = file_in.get()) != EOF) {
+        currentChar = static_cast<unsigned char>(currentByte);
 
-        if (currentChar == oldChar && counter < 15) {
+        if (currentChar == oldChar && counter < 16) {
             counter++;
         } else {
-            buffer[outSize++] = (counter << 4) + oldChar;
-            counter = 0;
+            buffer[outSize++] = static_cast<uint8_t>(((counter - 1) << 4) | oldChar);
             compressedLength++;
+            counter = 1;
+            oldChar = currentChar;
         }
-        oldChar = currentChar;
     }
+
+    buffer[outSize++] = static_cast<uint8_t>(((counter - 1) << 4) | oldChar);
+    compressedLength++;
 
     // compressed map length (little endian)
     buffer[4] = static_cast<uint8_t>(static_cast<uint16_t>(compressedLength) & 0x00FF);
