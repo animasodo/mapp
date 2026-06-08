@@ -28,9 +28,13 @@ typedef struct{
     string name;
     uint8_t src_x, src_y, dst_x, dst_y;
 } warp;
+typedef struct{
+    uint8_t x, y;
+} door;
 
 // vectors
 vector<warp> warps;
+vector<door> doors;
 
 void from_json(const json& j, warp& w) {
     try {
@@ -46,13 +50,24 @@ void from_json(const json& j, warp& w) {
     }
 }
 
+void from_json(const json& j, door& d) {
+    try {
+        j.at("x").get_to(d.x);
+        j.at("y").get_to(d.y);
+    }catch (nlohmann::detail::out_of_range &e) {
+        cout << "Warning: One or more values in a door are missing." << endl;
+    }catch (nlohmann::detail::type_error &e) {
+        cout << "Warning: One or more values in a door are the wrong type." << endl;
+    }
+}
+
 int main(int argc, char *argv[]) {
     if (argc == 1) {
         cerr << "Error: Arguments not provided." << endl;
         return 1;
     }
 
-    ifstream file_in(argv[1]);
+    ifstream file_in(argv[1], ios::binary);
     if (!file_in.is_open()) {
         cerr << "Error: Can't open map file." << endl;
         return 1;
@@ -102,6 +117,7 @@ int main(int argc, char *argv[]) {
             }
 
             warps = jsonData["warps"].get<vector<warp>>();
+            doors = jsonData["doors"].get<vector<door>>();
             jsonFile.close();
         }
         if (argument == "-l") {
@@ -135,7 +151,7 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    ofstream file_out(filenameOutput);
+    ofstream file_out(filenameOutput, ios::binary);
 
     finSize = filesystem::file_size(argv[1]);
 
@@ -188,6 +204,12 @@ int main(int argc, char *argv[]) {
         buffer[outSize++] = w.src_y;
         buffer[outSize++] = w.dst_x;
         buffer[outSize++] = w.dst_y;
+    }
+
+    for (door d : doors) {
+        buffer[outSize++] = 0x44; // D
+        buffer[outSize++] = d.x;
+        buffer[outSize++] = d.y;
     }
 
     // end of file
