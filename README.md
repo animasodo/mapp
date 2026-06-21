@@ -38,7 +38,7 @@ You can attach a json to insert metadata and entity data using the `-j` option. 
 [1 byte] width
 [1 byte] height
 [2 bytes] compressed map length in little endian
-[x bytes] compressed map data, uses RLE (upper nibble is length + 1, lower nibble is tile)
+[x bytes] compressed map data, uses RLE pairs: first byte is length, second byte is tile
 *** optional data ***
 ** warps **
 [1 byte] warp header (0x57)

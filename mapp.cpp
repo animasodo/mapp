@@ -178,18 +178,20 @@ int main(int argc, char *argv[]) {
     while ((currentByte = file_in.get()) != EOF) {
         currentChar = static_cast<unsigned char>(currentByte);
 
-        if (currentChar == oldChar && counter < 16) {
+        if (currentChar == oldChar && counter < 255) {
             counter++;
         } else {
-            buffer[outSize++] = static_cast<uint8_t>(((counter - 1) << 4) | oldChar);
-            compressedLength++;
+            buffer[outSize++] = static_cast<uint8_t>(counter);
+            buffer[outSize++] = oldChar;
+            compressedLength += 2;
             counter = 1;
             oldChar = currentChar;
         }
     }
 
-    buffer[outSize++] = static_cast<uint8_t>(((counter - 1) << 4) | oldChar);
-    compressedLength++;
+    buffer[outSize++] = static_cast<uint8_t>(counter);
+    buffer[outSize++] = oldChar;
+    compressedLength += 2;
 
     // compressed map length (little endian)
     buffer[4] = static_cast<uint8_t>(static_cast<uint16_t>(compressedLength) & 0x00FF);
