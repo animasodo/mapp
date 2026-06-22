@@ -174,24 +174,31 @@ int main(int argc, char *argv[]) {
     buffer[outSize++] = 0;
     buffer[outSize++] = 0;
 
+    auto writeRun = [&](unsigned int runLength, unsigned char value) {
+        if (runLength <= 7) {
+            buffer[outSize++] = static_cast<uint8_t>(((runLength - 1) << 5) | (value & 0x1F));
+            compressedLength++;
+        } else {
+            buffer[outSize++] = static_cast<uint8_t>(0xE0 | (value & 0x1F));
+            buffer[outSize++] = static_cast<uint8_t>(runLength);
+            compressedLength += 2;
+        }
+    };
+
     // map data
     while ((currentByte = file_in.get()) != EOF) {
-        currentChar = static_cast<unsigned char>(currentByte);
+        currentChar = static_cast<uint8_t>(currentByte);
 
         if (currentChar == oldChar && counter < 255) {
             counter++;
         } else {
-            buffer[outSize++] = static_cast<uint8_t>(counter);
-            buffer[outSize++] = oldChar;
-            compressedLength += 2;
+            writeRun(counter, oldChar);
             counter = 1;
             oldChar = currentChar;
         }
     }
 
-    buffer[outSize++] = static_cast<uint8_t>(counter);
-    buffer[outSize++] = oldChar;
-    compressedLength += 2;
+    writeRun(counter, oldChar);
 
     // compressed map length (little endian)
     buffer[4] = static_cast<uint8_t>(static_cast<uint16_t>(compressedLength) & 0x00FF);

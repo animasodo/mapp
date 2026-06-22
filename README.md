@@ -27,6 +27,12 @@ You can attach a json to insert metadata and entity data using the `-j` option. 
             "dst_x": 13,
             "dst_y": 21
         }
+    ],
+    "doors": [
+        {
+            "x": 5,
+            "y": 6
+        }
     ]
 }
 ```
@@ -38,15 +44,27 @@ You can attach a json to insert metadata and entity data using the `-j` option. 
 [1 byte] width
 [1 byte] height
 [2 bytes] compressed map length in little endian
-[x bytes] compressed map data, uses RLE pairs: first byte is length, second byte is tile
+[x bytes] compressed map data, uses a hybrid RLE method:
+    - if the horizontal length is less than 8, it fits inside the three most significant bits of the byte. the game adds one to the length, so if the three bits are 000, it's actually one character
+    - if it's 8 or more, the three bits are set to 111 and the actual length is in the next byte
+
 *** optional data ***
+
 ** warps **
 [1 byte] warp header (0x57)
-[x bytes] map name, null terminated
+- if a CSV file is used: [1 byte] map id
+- if no CSV is used: [x bytes] map name, null terminated
 [1 byte] source x location
 [1 byte] source y location
 [1 byte] destiny x location
 [1 byte] destiny y location
+
+** doors **
+[1 byte] door header (0x44)
+[1 byte] x location
+[1 byte] y location
+
+[1 byte] EOF marker (0x45)
 ```
 
 The structure may be subject to changes in the future, this is still a WIP.
