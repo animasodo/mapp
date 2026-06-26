@@ -116,8 +116,12 @@ int main(int argc, char *argv[]) {
                 cout << "Warning: Width and height values are the wrong format." << endl;
             }
 
-            warps = jsonData["warps"].get<vector<warp>>();
-            doors = jsonData["doors"].get<vector<door>>();
+            if (jsonData.contains("warps")) {
+                warps = jsonData["warps"].get<vector<warp>>();
+            }
+            if (jsonData.contains("doors")) {
+                doors = jsonData["doors"].get<vector<door>>();
+            }
             jsonFile.close();
         }
         if (argument == "-l") {
