@@ -171,8 +171,7 @@ int blocks_needed_for(const string& path) {
         exit(1);
     }
     long size = f.tellg();
-    int blocks = static_cast<int>((size + 253) / 254);
-    return blocks > 0 ? blocks : 1;
+    return max(static_cast<int>((size + 253) / 254), 1);
 }
 
 long file_size_of(const string& path) {
@@ -281,9 +280,9 @@ int main(int argc, char* argv[]) {
         vector<pair<int,int>> blocks = reserve_auto(disk, order, auto_cursor, nblocks, d.name);
         write_headered(disk, blocks, d.path, size);
         if (d.listed) {
-            placements.push_back({d.name, blocks, size, true});
+            placements.push_back({d.name, blocks, size, false});
         }else {
-            unlisted_placements.push_back({d.name, blocks, size, true});
+            unlisted_placements.push_back({d.name, blocks, size, false});
         }
     }
 
