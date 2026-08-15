@@ -5,27 +5,16 @@
 #include <fstream>
 #include <vector>
 #include <cstring>
-
+#include "disk.hpp"
 using namespace std;
 
 typedef struct{
     uint8_t name[16], track, sector, type;
 } file;
 
-const int INITIAL_ADDRESS = 0x16600; // i think the filename data always starts here on a d64?
 const int BUFFER_SIZE = 0x20;
 vector<file> list;
 uint8_t entry_buffer[BUFFER_SIZE];
-
-int track_offset(int track) {
-    static const int sectors_per_track[] = {21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21,21, // 1-17
-                                            19,19,19,19,19,19,19,                               // 18-24
-                                            18,18,18,18,18,18,                                  // 25-30
-                                            17,17,17,17,17};                                    // 31-35
-    int offset = 0;
-    for (int t = 1; t < track; ++t) offset += sectors_per_track[t-1] * 256;
-    return offset;
-}
 
 int main(int argc, char *argv[]) {
     if (argc < 3) {
@@ -44,8 +33,6 @@ int main(int argc, char *argv[]) {
         cerr << "Error: Can't open output file." << endl;
         return 1;
     }
-
-    file_in.seekg(INITIAL_ADDRESS, ios::beg);
 
     int track = 18, sector = 1;
     while (track != 0) {
