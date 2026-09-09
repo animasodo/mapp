@@ -11,22 +11,22 @@ unsigned char currentChar, oldChar, buffer[65536];
 unsigned int counter = 0, outSize = 0, compressedLength = 0, finSize;
 int width = 0, height = 0;
 bool use_list = false;
-map<string, int> name_map;
+vector<uint8_t> script_data;
+vector<string> script_names;
 string filenameOutput;
 
 const string HELP = "Usage:\n        mapp [infile] [options]\n"
                     "Options:\n"
                     "    -h  prints this message.\n"
                     "    -o  outputs with custom filename.\n"
-                    "    -w  sets width.\n"
-                    "    -t  sets height.\n"
-                    "    -j  imports a json file.\n"
-                    "    -l  imports a csv for storing ids instead of map names.\n";
+                    "    -j  imports an entity json file.\n"
+                    "    -s  imports a compiled script file.\n"
+                    "    -n  imports a listing of compiled script names\n";
 
 // structs
 typedef struct{
-    string name;
-    uint8_t src_x, src_y, dst_x, dst_y;
+    uint8_t x, y;
+    string script;
 } warp;
 typedef struct{
     uint8_t x, y;
@@ -38,15 +38,13 @@ vector<door> doors;
 
 void from_json(const json& j, warp& w) {
     try {
-        j.at("map").get_to(w.name);
-        j.at("src_x").get_to(w.src_x);
-        j.at("src_y").get_to(w.src_y);
-        j.at("dst_x").get_to(w.dst_x);
-        j.at("dst_y").get_to(w.dst_y);
+        j.at("x").get_to(w.x);
+        j.at("y").get_to(w.y);
+        j.at("script").get_to(w.script);
     }catch (nlohmann::detail::out_of_range &e) {
-        cout << "Warning: One or more values in \"" << w.name << "\" are missing." << endl;
+        cout << "Warning: One or more values in a warp are missing." << endl;
     }catch (nlohmann::detail::type_error &e) {
-        cout << "Warning: One or more values in \"" << w.name << "\" are the wrong type." << endl;
+        cout << "Warning: One or more values in a warp are the wrong type." << endl;
     }
 }
 
@@ -59,6 +57,14 @@ void from_json(const json& j, door& d) {
     }catch (nlohmann::detail::type_error &e) {
         cout << "Warning: One or more values in a door are the wrong type." << endl;
     }
+}
+
+unsigned int find_script(string name){
+    for(unsigned int i = 0; i < script_names.size(); i++){
+        if(script_names[i] == name) return i;
+    }
+    cerr << "Error: A script name could not be found." << endl;
+    exit(1);
 }
 
 int main(int argc, char *argv[]) {
@@ -81,20 +87,6 @@ int main(int argc, char *argv[]) {
         if (argument == "-h") {
             cout << HELP;
             return 1;
-        }
-        if (argument == "-w") {
-            width = stoi(argv[++a]);
-            if (width <= 0 || width > 255) {
-                cerr << "Error: Width must be set and a number between 1 and 255." << endl;
-                return 1;
-            }
-        }
-        if (argument == "-t") {
-            height = stoi(argv[++a]);
-            if (height <= 0 || height > 255) {
-                cerr << "Error: Height must be set and a number between 1 and 255." << endl;
-                return 1;
-            }
         }
         if (argument == "-o") {
             filenameOutput = argv[++a];
@@ -124,29 +116,28 @@ int main(int argc, char *argv[]) {
             }
             jsonFile.close();
         }
-        if (argument == "-l") {
-            use_list = true;
-            ifstream name_list(argv[++a]);
-            if (!name_list.is_open()) {
-                cerr << "Error: Can't open name list." << endl;
+        if (argument == "-s") {
+            ifstream compiled_scripts(argv[++a], ios::binary);
+            if (!compiled_scripts.is_open()) {
+                cerr << "Error: Can't open compiled script file." << endl;
                 return 1;
             }
-
-            string line;
-            while (getline(name_list, line)) {
-                istringstream ss(line);
-                string key;
-                string valueStr;
-
-                if (getline(ss, key, ',') && getline(ss, valueStr)) {
-                    try {
-                        name_map[key] = stoi(valueStr);
-                    } catch (const invalid_argument&) {
-                        cerr << "Warning: Invalid value " << valueStr << " for key " << key << "." << endl;
-                    }
-                }
+            script_data = vector<uint8_t>(istreambuf_iterator<char>(compiled_scripts), {});
+            compiled_scripts.close();
+        }
+        if (argument == "-n") {
+            ifstream script_name_file(argv[++a], ios::binary);
+            if (!script_name_file.is_open()) {
+                cerr << "Error: Can't open script name list file." << endl;
+                return 1;
             }
-            name_list.close();
+            
+            string line;
+            while(getline(script_name_file, line)){
+                script_names.push_back(line);
+            }
+
+            script_name_file.close();
         }
     }
 
@@ -211,22 +202,9 @@ int main(int argc, char *argv[]) {
     // warps
     for (warp w : warps) {
         buffer[outSize++] = 0x57; // W
-        if (use_list == true) {
-            if (name_map.find(w.name) != name_map.end()) {
-                buffer[outSize++] = static_cast<uint8_t>(name_map[w.name]);
-            } else {
-                cerr << "Error: Key " << w.name << " not found." << endl;
-                return 1;
-            }
-        }else {
-            for (int i = 0; i <= static_cast<int>(w.name.length()); i++) {
-                buffer[outSize++] = w.name[i];
-            }
-        }
-        buffer[outSize++] = w.src_x;
-        buffer[outSize++] = w.src_y;
-        buffer[outSize++] = w.dst_x;
-        buffer[outSize++] = w.dst_y;
+        buffer[outSize++] = w.x;
+        buffer[outSize++] = w.y;
+        buffer[outSize++] = static_cast<uint8_t>(find_script(w.script));
     }
 
     for (door d : doors) {
@@ -235,11 +213,14 @@ int main(int argc, char *argv[]) {
         buffer[outSize++] = d.y;
     }
 
-    // end of file
-    buffer[outSize++] = 0x45; // E
+    // script
+    buffer[outSize++] = 0x53; // S
+    for (uint8_t b : script_data) {
+        buffer[outSize++] = b;
+    }
 
     file_out.write(reinterpret_cast<const ostream::char_type *>(buffer), outSize);
-
+    
     file_in.close();
     file_out.close();
     return 0;

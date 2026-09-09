@@ -35,12 +35,12 @@ enum operand_type{
 };
 
 struct script{
-    std::string name;
-    unsigned int index;
+    std::string script_name;
+    unsigned int size;
 };
 
 struct symbol{
-    script current_script;
+    unsigned int script_index;
     std::string label_name;
     unsigned int index;
 };
@@ -77,7 +77,8 @@ opcode_def opcode_table[] = {
     {"bgt", 0x0F, OP_LABEL_REF}, // r0 > r1
 
     {"load_map", 0x10, OP_TWO_BYTE},
-    {"set_tile", 0x11, OP_TWO_BYTE}
+    {"set_tile", 0x11, OP_TWO_BYTE},
+    {"say", 0x12, OP_STRING_REF}
 };
 
 unsigned int get_opcode_byte_count(opcode_def opcode){
@@ -97,9 +98,45 @@ unsigned int get_opcode_byte_count(opcode_def opcode){
         case OP_ITEM_REF:
             return 2;
         case OP_STRING_REF:
-            return 255;
+            return 1;
     }
     return 0;
+}
+
+string convert_string(string in){
+    string buf;
+
+    for(unsigned int i = 0; i < in.length(); i++){
+        if(in[i] >= 0x41 && in[i] <= 0x5A){ // uppercase
+            buf += in[i] + 0x80;
+            continue;
+        }else if(in[i] >= 0x61 && in[i] <= 0x7A){ // lowercase
+            buf += in[i] - 0x20;
+            continue;
+        }else if(in[i] == '\\'){
+            switch(in[++i]){
+                case 'n':
+                    buf += 0x0D;
+                    break;
+                case 'c': {
+                    unsigned int number = in[++i] - '0';
+                    if(number > 7){ // we only need the first 8 colors
+                        cerr << "Warning: Unexpected number in color sequence." << endl;
+                    }
+                    buf += 0x01;
+                    buf += static_cast<uint8_t>(number);
+                    break;
+                }
+                default:
+                    buf += in[i];
+                    break;
+            }
+        }else{
+            buf += in[i];
+        }
+    }
+
+    return buf;
 }
 
 bool str_equal(string a, string b){
@@ -122,11 +159,7 @@ symbol find_label(string label, vector<symbol> table){
     for(auto sb : table){
         if(sb.label_name == label) return sb;
     }
-    return {{"", 0}, "", 0};
-}
-
-bool has_argument(const vector<token>& line, unsigned int mnemonic_location){
-    return line.size() > mnemonic_location + 1;
+    return {0, "", 0};
 }
 
 vector<token> get_arguments(vector<token> line, unsigned int mnemonic_location){
@@ -223,13 +256,17 @@ int main(int argc, char *argv[]){
         cout << "Usage:\n        " << argv[0] << " [in] [options]" << endl;
         cout << "Options:" << endl;
         cout << "    -o  defines the file output." << endl;
+        cout << "    -s  output a list of the script names with their number." << endl;
         return 1;
     }
-    string in_path = argv[1], out_path;
+    string in_path = argv[1], out_path, script_list_path;
     for(int i = 2; i < argc; i++){
         string argument = argv[i];
         if(argument == "-o"){
             out_path = argv[++i];
+        }
+        if(argument == "-s"){
+            script_list_path = argv[++i];
         }
     }
 
@@ -239,12 +276,6 @@ int main(int argc, char *argv[]){
         return 1;
     }
 
-    ofstream file_out(out_path, ios::binary);
-    // if (!file_out.is_open()) {
-    //     cerr << "Error: Can't open output file." << endl;
-    //     return 1;
-    // }
-
     // tokenize the code
     vector<vector<token>> tokenized_code;
     std::string line;
@@ -253,20 +284,25 @@ int main(int argc, char *argv[]){
         if (!out.empty()) tokenized_code.push_back(out);
     }
 
-    // first pass for labels
     unsigned int index = 0;
     int script_index = -1;
     string script_name;
     bool in_script = false;
     vector<symbol> symbol_table;
     vector<declaration> declaration_table;
+    vector<script> script_list;
+    // data that's gonna be in the disk
+    vector<uint8_t> final_index;
+    vector<uint8_t> compiled_data;
+
+    // first pass for labels
     for(auto line : tokenized_code){
         if(line[0].type == PERIOD){ // directive
             if(line[1].text == "begin"){
                 if(!in_script){
                     in_script = true;
                     script_index++;
-                    script_name = line[1].text;
+                    script_name = line[2].text;
                     index = 0;
                     continue;
                 }else{
@@ -275,6 +311,7 @@ int main(int argc, char *argv[]){
                 }
             }else if(line[1].text == "end"){
                 if(in_script){
+                    script_list.push_back({script_name, index});
                     in_script = false;
                     continue;
                 }else{
@@ -300,7 +337,7 @@ int main(int argc, char *argv[]){
             unsigned int mnemonic_location = 0;
             if(line.size() > 1 && line[1].type == COLON){
                 // might be a label
-                symbol_table.push_back({{script_name, static_cast<unsigned int>(script_index)}, line[0].text, index});
+                symbol_table.push_back({static_cast<unsigned int>(script_index), line[0].text, index});
                 if(line.size() > 2){
                     mnemonic_location = 2; // if there is more code on the line, set mnemonic location to 2
                 }else{
@@ -312,8 +349,14 @@ int main(int argc, char *argv[]){
             opcode_def entry = find_defined_keyword(line[mnemonic_location].text);
             if(entry.mnemonic.empty()){
                 cerr << "Error: Keyword '" << line[mnemonic_location].text << "' not found." << endl;
+                return 1;
             }else{
-                index += get_opcode_byte_count(entry);
+                if(entry.operand == OP_STRING_REF){ // we really need to figure out how many bytes a string will take since it's inlined
+                    index += get_opcode_byte_count(entry) + convert_string(line[mnemonic_location + 1].text).length();
+                    // not very good but it'll do for now
+                }else{
+                    index += get_opcode_byte_count(entry);
+                }
             }
         }
     }
@@ -332,7 +375,6 @@ int main(int argc, char *argv[]){
                 continue;
             }else if(line[1].text == "end"){
                 in_script = false;
-                file_out.put(static_cast<uint8_t>(0x00)); // write end opcode
                 continue;
             }
         }
@@ -353,50 +395,50 @@ int main(int argc, char *argv[]){
                 cerr << "Error: Keyword '" << line[mnemonic_location].text << "' not found." << endl;
             }else{
                 // we have encountered a valid instruction
-                cout << entry.mnemonic << endl;
+                // cout << entry.mnemonic << endl;
 
                 unsigned int byte_count = get_opcode_byte_count(entry);
                 index += byte_count;
-                vector<token> args = get_arguments(line, mnemonic_location);
+                vector<token> args = get_arguments(line, mnemonic_location); // this gets arguments and also makes sure they're separated by commas
                 switch(entry.operand){
                     case OP_NONE: {
                         check_arg_number(0, args);
-                        file_out.put(entry.opcode);
+                        compiled_data.push_back(entry.opcode);
                         break;
                     }
 
                     case OP_BYTE: {
                         check_arg_number(1, args);
-                        file_out.put(entry.opcode);
-                        file_out.put(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
+                        compiled_data.push_back(entry.opcode);
+                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
                         break;
                     }
 
                     case OP_TWO_BYTE: {
                         check_arg_number(2, args);
-                        file_out.put(entry.opcode);
-                        file_out.put(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
-                        file_out.put(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
+                        compiled_data.push_back(entry.opcode);
+                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
+                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
                         break;
                     }
 
                     case OP_THREE_BYTE: {
                         check_arg_number(3, args);
-                        file_out.put(entry.opcode);
-                        file_out.put(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
-                        file_out.put(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
-                        file_out.put(static_cast<uint8_t>(convert_arg_to_num(args[2], declaration_table)));
+                        compiled_data.push_back(entry.opcode);
+                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
+                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
+                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[2], declaration_table)));
                         break;
                     }
 
                     case OP_LABEL_REF: {
                         check_arg_number(1, args);
-                        file_out.put(entry.opcode);
+                        compiled_data.push_back(entry.opcode);
 
                         string label_name = args[0].text;
                         auto sb = find_label(label_name, symbol_table);
-                        if(sb.label_name == label_name && sb.current_script.index == static_cast<unsigned int>(script_index)){
-                            file_out.put(static_cast<int8_t>(sb.index - index)); // we want the negative bit
+                        if(sb.label_name == label_name && sb.script_index == static_cast<unsigned int>(script_index)){
+                            compiled_data.push_back(static_cast<int8_t>(sb.index - index)); // we want the negative bit
                             break;
                         }
                         
@@ -406,12 +448,25 @@ int main(int argc, char *argv[]){
 
                     case OP_FLAG_REF: {
                         check_arg_number(1, args);
-                        file_out.put(entry.opcode);
+                        compiled_data.push_back(entry.opcode);
 
                         unsigned int flag = convert_arg_to_num(args[0], declaration_table);
 
-                        file_out.put(static_cast<uint8_t>(flag / 8));
-                        file_out.put(static_cast<uint8_t>(0x01 << (flag % 8)));
+                        compiled_data.push_back(static_cast<uint8_t>(flag / 8));
+                        compiled_data.push_back(static_cast<uint8_t>(0x01 << (flag % 8)));
+                        break;
+                    }
+
+                    case OP_STRING_REF: {
+                        check_arg_number(1, args);
+                        if(args[0].type != STRING){
+                            cerr << "Error: Not a string." << endl;
+                        }
+                        compiled_data.push_back(entry.opcode);
+                        string converted_string = convert_string(args[0].text);
+                        for(char c : converted_string){
+                            compiled_data.push_back(c);
+                        }
                         break;
                     }
 
@@ -422,7 +477,31 @@ int main(int argc, char *argv[]){
             }
         }
     }
+    
+    // done compiling, let's put everything in the output file
+    ofstream file_out(out_path, ios::binary);
+
+    file_out.put(script_list.size()); // number of scripts
+
+    unsigned int offset = 0;
+    for(auto scr : script_list){ // script offset
+        file_out.put(static_cast<uint8_t>(offset & 0xFF));
+        file_out.put(static_cast<uint8_t>((offset & 0xFF00) >> 8));
+        offset += scr.size;
+    }
+    for(auto b : compiled_data){
+        file_out.put(static_cast<uint8_t>(b));
+    }
+
+    file_out.close();
+
+    if(!script_list_path.empty()){
+        ofstream script_file(script_list_path);
+        for(auto scr : script_list){
+            script_file << scr.script_name << endl;
+        }
+        script_file.close();
+    }
 
     file_in.close();
-    file_out.close();
 }
