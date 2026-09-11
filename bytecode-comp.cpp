@@ -15,7 +15,8 @@ enum token_type{
     STRING,
     COMMA,
     COLON,
-    PERIOD
+    PERIOD,
+    EQUAL
 };
 
 struct token{
@@ -64,21 +65,21 @@ opcode_def opcode_table[] = {
     {"ld_r1_r0", 0x04, OP_NONE},
     {"add", 0x05, OP_NONE},
     {"sub", 0x06, OP_NONE},
-    {"set_flag", 0x07, OP_FLAG_REF},
-    {"clr_flag", 0x08, OP_FLAG_REF},
-    {"ld_r0_flag", 0x09, OP_FLAG_REF},
+    {"set_flag", 0x07, OP_FLAG_REF}, // put r0 boolean (0 or !0) into flag
+    {"ld_flag", 0x08, OP_FLAG_REF}, // put flag boolean into r0
     // all branch commands use a single byte for branching just like the 6502
     // if bit 7 is set, the number is negative and the jump is backwards
     {"beq", 0x0A, OP_LABEL_REF}, // r0 == r1
     {"bne", 0x0B, OP_LABEL_REF}, // r0 != r1
     {"blt", 0x0C, OP_LABEL_REF}, // r0 < r1
-    {"ble", 0x0D, OP_LABEL_REF}, // r0 =< r1
-    {"bge", 0x0E, OP_LABEL_REF}, // r0 >= r1
-    {"bgt", 0x0F, OP_LABEL_REF}, // r0 > r1
+    {"bgt", 0x0D, OP_LABEL_REF}, // r0 > r1
+    {"bra", 0x0E, OP_LABEL_REF}, // branch always
 
     {"load_map", 0x10, OP_TWO_BYTE},
     {"set_tile", 0x11, OP_TWO_BYTE},
-    {"say", 0x12, OP_STRING_REF}
+    {"say", 0x12, OP_STRING_REF},
+    {"ynq", 0x13, OP_NONE}, // yes/no question
+    {"wsp", 0x14, OP_NONE} // pause until spacebar pressed
 };
 
 unsigned int get_opcode_byte_count(opcode_def opcode){
@@ -135,6 +136,8 @@ string convert_string(string in){
             buf += in[i];
         }
     }
+
+    buf += static_cast<char>(0x00); // for whatever reason, there was no null terminator being generated, so we're doing it ourselves lmao
 
     return buf;
 }
@@ -221,6 +224,7 @@ vector<token> tokenize(std::string line){
         if(c == ',') {tokens.push_back({COMMA, string(1, c)}); i++;}
         if(c == ':') {tokens.push_back({COLON, string(1, c)}); i++;}
         if(c == '.') {tokens.push_back({PERIOD, string(1, c)}); i++;}
+        if(c == '=') {tokens.push_back({EQUAL, string(1, c)}); i++;}
         if(isalpha(c) || c == '_'){
             std::string token_buf;
             while(isalnum(line[i]) || line[i] == '_'){
@@ -333,6 +337,15 @@ int main(int argc, char *argv[]){
             }
         }
 
+        if(line.size() > 1 && line[1].type == EQUAL){ // equal style declaration
+            if(line.size() == 3){
+                declaration_table.push_back({line[0].text, line[2].text});
+            }else{
+                cerr << "Error: Declaration is not correctly formed." << endl;
+                return 1;
+            }
+        }
+
         if(in_script){
             unsigned int mnemonic_location = 0;
             if(line.size() > 1 && line[1].type == COLON){
@@ -351,12 +364,8 @@ int main(int argc, char *argv[]){
                 cerr << "Error: Keyword '" << line[mnemonic_location].text << "' not found." << endl;
                 return 1;
             }else{
-                if(entry.operand == OP_STRING_REF){ // we really need to figure out how many bytes a string will take since it's inlined
-                    index += get_opcode_byte_count(entry) + convert_string(line[mnemonic_location + 1].text).length();
-                    // not very good but it'll do for now
-                }else{
-                    index += get_opcode_byte_count(entry);
-                }
+                index += get_opcode_byte_count(entry);
+                entry.operand == OP_STRING_REF? index += convert_string(line[mnemonic_location + 1].text).length() : 0;
             }
         }
     }
@@ -397,8 +406,9 @@ int main(int argc, char *argv[]){
                 // we have encountered a valid instruction
                 // cout << entry.mnemonic << endl;
 
-                unsigned int byte_count = get_opcode_byte_count(entry);
-                index += byte_count;
+                index += get_opcode_byte_count(entry);
+                entry.operand == OP_STRING_REF? index += convert_string(line[mnemonic_location + 1].text).length() : 0;
+
                 vector<token> args = get_arguments(line, mnemonic_location); // this gets arguments and also makes sure they're separated by commas
                 switch(entry.operand){
                     case OP_NONE: {
@@ -417,8 +427,13 @@ int main(int argc, char *argv[]){
                     case OP_TWO_BYTE: {
                         check_arg_number(2, args);
                         compiled_data.push_back(entry.opcode);
-                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
-                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
+                        if(entry.mnemonic == "load_map"){ // flip x and y for easier interpretation
+                            compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
+                            compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
+                        }else{
+                            compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
+                            compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
+                        }
                         break;
                     }
 
@@ -437,7 +452,9 @@ int main(int argc, char *argv[]){
 
                         string label_name = args[0].text;
                         auto sb = find_label(label_name, symbol_table);
+                        cout << sb.index << ", " << sb.label_name << ", " << sb.script_index << endl; // debugging
                         if(sb.label_name == label_name && sb.script_index == static_cast<unsigned int>(script_index)){
+                            cout << "Label index: " << sb.index << ", current index: " << index << ", added: " << (sb.index - index) << endl;
                             compiled_data.push_back(static_cast<int8_t>(sb.index - index)); // we want the negative bit
                             break;
                         }
