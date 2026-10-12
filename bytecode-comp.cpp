@@ -291,37 +291,20 @@ int main(int argc, char *argv[]){
     unsigned int index = 0;
     int script_index = -1;
     string script_name;
-    bool in_script = false;
     vector<symbol> symbol_table;
     vector<declaration> declaration_table;
     vector<script> script_list;
     // data that's gonna be in the disk
-    vector<uint8_t> final_index;
     vector<uint8_t> compiled_data;
 
     // first pass for labels
     for(auto line : tokenized_code){
         if(line[0].type == PERIOD){ // directive
             if(line[1].text == "begin"){
-                if(!in_script){
-                    in_script = true;
-                    script_index++;
-                    script_name = line[2].text;
-                    index = 0;
-                    continue;
-                }else{
-                    cerr << "Error: Found script inside of a script." << endl;
-                    return 1;
-                }
-            }else if(line[1].text == "end"){
-                if(in_script){
-                    script_list.push_back({script_name, index});
-                    in_script = false;
-                    continue;
-                }else{
-                    cerr << "Error: Found end directive outside of a script." << endl;
-                    return 1;
-                }
+                script_index++;
+                script_name = line[2].text;
+                script_list.push_back({script_name, index});
+                continue;
             }else if(line[1].text == "declare"){
                 // for whatever reason vector does not throw range exceptions
                 if(line.size() == 4){
@@ -340,157 +323,143 @@ int main(int argc, char *argv[]){
         if(line.size() > 1 && line[1].type == EQUAL){ // equal style declaration
             if(line.size() == 3){
                 declaration_table.push_back({line[0].text, line[2].text});
+                continue;
             }else{
                 cerr << "Error: Declaration is not correctly formed." << endl;
                 return 1;
             }
         }
 
-        if(in_script){
-            unsigned int mnemonic_location = 0;
-            if(line.size() > 1 && line[1].type == COLON){
-                // might be a label
-                symbol_table.push_back({static_cast<unsigned int>(script_index), line[0].text, index});
-                if(line.size() > 2){
-                    mnemonic_location = 2; // if there is more code on the line, set mnemonic location to 2
-                }else{
-                    continue; // otherwise, skip to next line
-                }
-            }
-
-            // find keyword
-            opcode_def entry = find_defined_keyword(line[mnemonic_location].text);
-            if(entry.mnemonic.empty()){
-                cerr << "Error: Keyword '" << line[mnemonic_location].text << "' not found." << endl;
-                return 1;
+        unsigned int mnemonic_location = 0;
+        if(line.size() > 1 && line[1].type == COLON){
+            // might be a label
+            symbol_table.push_back({static_cast<unsigned int>(script_index), line[0].text, index});
+            if(line.size() > 2){
+                mnemonic_location = 2; // if there is more code on the line, set mnemonic location to 2
             }else{
-                index += get_opcode_byte_count(entry);
-                entry.operand == OP_STRING_REF? index += convert_string(line[mnemonic_location + 1].text).length() : 0;
+                continue; // otherwise, skip to next line
             }
+        }
+
+        // find keyword
+        opcode_def entry = find_defined_keyword(line[mnemonic_location].text);
+        if(entry.mnemonic.empty()){
+            cerr << "Error: Keyword '" << line[mnemonic_location].text << "' not found." << endl;
+            return 1;
+        }else{
+            index += get_opcode_byte_count(entry);
+            if(entry.operand == OP_STRING_REF) index += convert_string(line[mnemonic_location + 1].text).length();
         }
     }
 
     // let's try a second pass
     index = 0;
     script_index = -1;
-    in_script = false;
 
     for(auto line : tokenized_code){
         if(line[0].type == PERIOD){ // directive
             if(line[1].text == "begin"){
                 script_index++;
-                in_script = true;
-                index = 0;
-                continue;
-            }else if(line[1].text == "end"){
-                in_script = false;
                 continue;
             }
         }
 
-        if(in_script){
-            unsigned int mnemonic_location = 0;
-            if(line.size() > 1 && line[1].type == COLON){
-                if(line.size() > 2){
-                    mnemonic_location = 2; // if there is more code on the line, set mnemonic location to 2
-                }else{
-                    continue; // otherwise, skip to next line
-                }
-            }
+        if(line.size() > 1 && line[1].type == EQUAL) continue; // just to skip equals
 
-            // find keyword
-            opcode_def entry = find_defined_keyword(line[mnemonic_location].text);
-            if(entry.mnemonic.empty()){
-                cerr << "Error: Keyword '" << line[mnemonic_location].text << "' not found." << endl;
+        unsigned int mnemonic_location = 0;
+        if(line.size() > 1 && line[1].type == COLON){
+            if(line.size() > 2){
+                mnemonic_location = 2; // if there is more code on the line, set mnemonic location to 2
             }else{
-                // we have encountered a valid instruction
-                // cout << entry.mnemonic << endl;
+                continue; // otherwise, skip to next line
+            }
+        }
 
-                index += get_opcode_byte_count(entry);
-                entry.operand == OP_STRING_REF? index += convert_string(line[mnemonic_location + 1].text).length() : 0;
+        // find keyword
+        opcode_def entry = find_defined_keyword(line[mnemonic_location].text);
+        if(entry.mnemonic.empty()){
+            cerr << "Error: Keyword '" << line[mnemonic_location].text << "' not found." << endl;
+        }else{
+            // we have encountered a valid instruction
+            // cout << entry.mnemonic << endl;
 
-                vector<token> args = get_arguments(line, mnemonic_location); // this gets arguments and also makes sure they're separated by commas
-                switch(entry.operand){
-                    case OP_NONE: {
-                        check_arg_number(0, args);
-                        compiled_data.push_back(entry.opcode);
-                        break;
-                    }
+            index += get_opcode_byte_count(entry);
+            entry.operand == OP_STRING_REF? index += convert_string(line[mnemonic_location + 1].text).length() : 0;
 
-                    case OP_BYTE: {
-                        check_arg_number(1, args);
-                        compiled_data.push_back(entry.opcode);
-                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
-                        break;
-                    }
-
-                    case OP_TWO_BYTE: {
-                        check_arg_number(2, args);
-                        compiled_data.push_back(entry.opcode);
-                        if(entry.mnemonic == "load_map"){ // flip x and y for easier interpretation
-                            compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
-                            compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
-                        }else{
-                            compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
-                            compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
-                        }
-                        break;
-                    }
-
-                    case OP_THREE_BYTE: {
-                        check_arg_number(3, args);
-                        compiled_data.push_back(entry.opcode);
-                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
-                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
-                        compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[2], declaration_table)));
-                        break;
-                    }
-
-                    case OP_LABEL_REF: {
-                        check_arg_number(1, args);
-                        compiled_data.push_back(entry.opcode);
-
-                        string label_name = args[0].text;
-                        auto sb = find_label(label_name, symbol_table);
-                        cout << sb.index << ", " << sb.label_name << ", " << sb.script_index << endl; // debugging
-                        if(sb.label_name == label_name && sb.script_index == static_cast<unsigned int>(script_index)){
-                            cout << "Label index: " << sb.index << ", current index: " << index << ", added: " << (sb.index - index) << endl;
-                            compiled_data.push_back(static_cast<int8_t>(sb.index - index)); // we want the negative bit
-                            break;
-                        }
-                        
-                        cerr << "Error: Label '" << label_name << "' not found." << endl;
-                        return 1;
-                    }
-
-                    case OP_FLAG_REF: {
-                        check_arg_number(1, args);
-                        compiled_data.push_back(entry.opcode);
-
-                        unsigned int flag = convert_arg_to_num(args[0], declaration_table);
-
-                        compiled_data.push_back(static_cast<uint8_t>(flag / 8));
-                        compiled_data.push_back(static_cast<uint8_t>(0x01 << (flag % 8)));
-                        break;
-                    }
-
-                    case OP_STRING_REF: {
-                        check_arg_number(1, args);
-                        if(args[0].type != STRING){
-                            cerr << "Error: Not a string." << endl;
-                        }
-                        compiled_data.push_back(entry.opcode);
-                        string converted_string = convert_string(args[0].text);
-                        for(char c : converted_string){
-                            compiled_data.push_back(c);
-                        }
-                        break;
-                    }
-
-                    default:
-                        cerr << "Error: Unknown operand type." << endl;
-                        return 1;
+            vector<token> args = get_arguments(line, mnemonic_location); // this gets arguments and also makes sure they're separated by commas
+            switch(entry.operand){
+                case OP_NONE: {
+                    check_arg_number(0, args);
+                    compiled_data.push_back(entry.opcode);
+                    break;
                 }
+
+                case OP_BYTE: {
+                    check_arg_number(1, args);
+                    compiled_data.push_back(entry.opcode);
+                    compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
+                    break;
+                }
+
+                case OP_TWO_BYTE: {
+                    check_arg_number(2, args);
+                    compiled_data.push_back(entry.opcode);
+                    compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
+                    compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
+                    break;
+                }
+
+                case OP_THREE_BYTE: {
+                    check_arg_number(3, args);
+                    compiled_data.push_back(entry.opcode);
+                    compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[0], declaration_table)));
+                    compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[1], declaration_table)));
+                    compiled_data.push_back(static_cast<uint8_t>(convert_arg_to_num(args[2], declaration_table)));
+                    break;
+                }
+
+                case OP_LABEL_REF: {
+                    check_arg_number(1, args);
+                    compiled_data.push_back(entry.opcode);
+
+                    string label_name = args[0].text;
+                    auto sb = find_label(label_name, symbol_table);
+                    if(sb.label_name == label_name && sb.script_index == static_cast<unsigned int>(script_index)){
+                        compiled_data.push_back(static_cast<int8_t>(sb.index - index)); // we want the negative bit
+                        break;
+                    }
+                    
+                    cerr << "Error: Label '" << label_name << "' not found." << endl;
+                    return 1;
+                }
+
+                case OP_FLAG_REF: {
+                    check_arg_number(1, args);
+                    compiled_data.push_back(entry.opcode);
+
+                    unsigned int flag = convert_arg_to_num(args[0], declaration_table);
+
+                    compiled_data.push_back(static_cast<uint8_t>(flag / 8));
+                    compiled_data.push_back(static_cast<uint8_t>(0x01 << (flag % 8)));
+                    break;
+                }
+
+                case OP_STRING_REF: {
+                    check_arg_number(1, args);
+                    if(args[0].type != STRING){
+                        cerr << "Error: Not a string." << endl;
+                    }
+                    compiled_data.push_back(entry.opcode);
+                    string converted_string = convert_string(args[0].text);
+                    for(char c : converted_string){
+                        compiled_data.push_back(c);
+                    }
+                    break;
+                }
+
+                default:
+                    cerr << "Error: Unknown operand type." << endl;
+                    return 1;
             }
         }
     }
