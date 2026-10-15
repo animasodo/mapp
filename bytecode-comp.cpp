@@ -6,7 +6,9 @@
 #include <vector>
 #include <cstring>
 
-using namespace std;
+using std::cout;
+using std::cerr;
+using std::endl;
 
 // token stuff
 enum token_type{
@@ -104,8 +106,8 @@ unsigned int get_opcode_byte_count(opcode_def opcode){
     return 0;
 }
 
-string convert_string(string in){
-    string buf;
+std::string convert_string(std::string in){
+    std::string buf;
 
     for(unsigned int i = 0; i < in.length(); i++){
         if(in[i] >= 0x41 && in[i] <= 0x5A){ // uppercase
@@ -142,7 +144,7 @@ string convert_string(string in){
     return buf;
 }
 
-bool str_equal(string a, string b){
+bool str_equal(std::string a, std::string b){
     if(a.length() != b.length()) return false;
 
     for(unsigned int i = 0; i < a.length(); i++){
@@ -151,22 +153,22 @@ bool str_equal(string a, string b){
     return true;
 }
 
-opcode_def find_defined_keyword(string keyword){
+opcode_def find_defined_keyword(std::string keyword){
     for(auto entry : opcode_table){
         if(str_equal(entry.mnemonic, keyword)) return entry;
     }
     return {"", 0x00, OP_NONE};
 }
 
-symbol find_label(string label, vector<symbol> table){
+symbol find_label(std::string label, std::vector<symbol> table){
     for(auto sb : table){
         if(sb.label_name == label) return sb;
     }
     return {0, "", 0};
 }
 
-vector<token> get_arguments(vector<token> line, unsigned int mnemonic_location){
-    vector<token> arguments;
+std::vector<token> get_arguments(std::vector<token> line, unsigned int mnemonic_location){
+    std::vector<token> arguments;
 
     for(unsigned int i = mnemonic_location+1; i < line.size(); ){
         arguments.push_back(line[i++]);
@@ -180,7 +182,7 @@ vector<token> get_arguments(vector<token> line, unsigned int mnemonic_location){
     return arguments;
 }
 
-declaration find_declaration(string name, vector<declaration> table){
+declaration find_declaration(std::string name, std::vector<declaration> table){
     for(auto dec : table){
         if(dec.name == name) return dec;
     }
@@ -188,7 +190,7 @@ declaration find_declaration(string name, vector<declaration> table){
 }
 
 // try to convert argument into a number and if it can't, check declaration table
-int convert_arg_to_num(token arg, vector<declaration> table){
+int convert_arg_to_num(token arg, std::vector<declaration> table){
     int num;
     if(arg.type == NUMBER){
         num = stoi(arg.text);
@@ -204,7 +206,7 @@ int convert_arg_to_num(token arg, vector<declaration> table){
     return num;
 }
 
-void check_arg_number(unsigned int number, vector<token> args){
+void check_arg_number(unsigned int number, std::vector<token> args){
     if(args.size() > number){
         cout << "Error: Too many arguments." << endl;
         exit(1);
@@ -214,17 +216,17 @@ void check_arg_number(unsigned int number, vector<token> args){
     }
 }
 
-vector<token> tokenize(std::string line){
-    vector<token> tokens;
+std::vector<token> tokenize_line(std::string line){
+    std::vector<token> tokens;
     if(line.empty()) return tokens; // skip blank line
     for(unsigned int i = 0; i < line.size(); ){
         char c = line[i];
         if(isspace(c)) {i++; continue;}
         if(c == ';') break; // stop when comment encountered
-        if(c == ',') {tokens.push_back({COMMA, string(1, c)}); i++;}
-        if(c == ':') {tokens.push_back({COLON, string(1, c)}); i++;}
-        if(c == '.') {tokens.push_back({PERIOD, string(1, c)}); i++;}
-        if(c == '=') {tokens.push_back({EQUAL, string(1, c)}); i++;}
+        if(c == ',') {tokens.push_back({COMMA, std::string(1, c)}); i++;}
+        if(c == ':') {tokens.push_back({COLON, std::string(1, c)}); i++;}
+        if(c == '.') {tokens.push_back({PERIOD, std::string(1, c)}); i++;}
+        if(c == '=') {tokens.push_back({EQUAL, std::string(1, c)}); i++;}
         if(isalpha(c) || c == '_'){
             std::string token_buf;
             while(isalnum(line[i]) || line[i] == '_'){
@@ -255,6 +257,18 @@ vector<token> tokenize(std::string line){
     return tokens;
 }
 
+std::vector<std::vector<token>> tokenize_file(std::ifstream& file){
+    std::string line;
+    std::vector<std::vector<token>> tokenized_code;
+    
+    while(getline(file, line)){
+        auto out = tokenize_line(line);
+        if (!out.empty()) tokenized_code.push_back(out);
+    }
+    
+    return tokenized_code;
+}
+
 int main(int argc, char *argv[]){
     if (argc < 2) {
         cout << "Usage:\n        " << argv[0] << " [in] [options]" << endl;
@@ -263,9 +277,9 @@ int main(int argc, char *argv[]){
         cout << "    -s  output a list of the script names with their number." << endl;
         return 1;
     }
-    string in_path = argv[1], out_path, script_list_path;
+    std::string in_path = argv[1], out_path, script_list_path;
     for(int i = 2; i < argc; i++){
-        string argument = argv[i];
+        std::string argument = argv[i];
         if(argument == "-o"){
             out_path = argv[++i];
         }
@@ -274,46 +288,53 @@ int main(int argc, char *argv[]){
         }
     }
 
-    ifstream file_in(in_path);
+    std::ifstream file_in(in_path);
     if (!file_in.is_open()) {
         cerr << "Error: Can't open input file." << endl;
         return 1;
     }
 
     // tokenize the code
-    vector<vector<token>> tokenized_code;
-    std::string line;
-    while(getline(file_in, line)){
-        auto out = tokenize(line);
-        if (!out.empty()) tokenized_code.push_back(out);
-    }
+    std::vector<std::vector<token>> tokenized_code = tokenize_file(file_in);
 
     unsigned int index = 0;
     int script_index = -1;
-    string script_name;
-    vector<symbol> symbol_table;
-    vector<declaration> declaration_table;
-    vector<script> script_list;
-    // data that's gonna be in the disk
-    vector<uint8_t> compiled_data;
+    std::vector<symbol> symbol_table;
+    std::vector<declaration> declaration_table;
+    std::vector<script> script_list;
+    std::vector<uint8_t> compiled_data; // data that's gonna be in the disk
 
-    // first pass for labels
-    for(auto line : tokenized_code){
+    // first pass for labels and directives
+    for(unsigned int i = 0; i < tokenized_code.size(); i++){
+        auto line = tokenized_code[i];
+
         if(line[0].type == PERIOD){ // directive
+            if(line.size() == 1) { cerr << "Error: No directive." << endl; return 1; }
             if(line[1].text == "begin"){
+                if(line.size() != 3) { cerr << "Error: Begin directive is not correctly formed." << endl; return 1; }
+
                 script_index++;
-                script_name = line[2].text;
-                script_list.push_back({script_name, index});
+                script_list.push_back({line[2].text, index});
                 continue;
             }else if(line[1].text == "declare"){
-                // for whatever reason vector does not throw range exceptions
-                if(line.size() == 4){
-                    declaration_table.push_back({line[2].text, line[3].text});
-                }else{
-                    cerr << "Error: Declaration is not correctly formed." << endl;
+                if(line.size() != 4) { cerr << "Error: Declaration is not correctly formed." << endl; return 1; }
+
+                declaration_table.push_back({line[2].text, line[3].text});
+            }else if(line[1].text == "include"){
+                if(line.size() != 3) { cerr << "Error: Include directive is not correctly formed." << endl; return 1; }
+
+                std::ifstream included_file(line[2].text);
+                if (!included_file.is_open()) {
+                    cerr << "Error: Can't open included file '" << line[2].text << "'." << endl;
                     return 1;
                 }
-                continue;
+
+                std::vector<std::vector<token>> tokenized_include = tokenize_file(included_file);
+                included_file.close();
+
+                auto insert_index = i;
+                for(auto include_line : tokenized_include) tokenized_code.insert(tokenized_code.begin() + insert_index++, include_line);
+
             }else{
                 cerr << "Error: Unknown directive." << endl;
                 return 1;
@@ -354,17 +375,11 @@ int main(int argc, char *argv[]){
 
     // let's try a second pass
     index = 0;
-    script_index = -1;
 
     for(auto line : tokenized_code){
-        if(line[0].type == PERIOD){ // directive
-            if(line[1].text == "begin"){
-                script_index++;
-                continue;
-            }
-        }
-
-        if(line.size() > 1 && line[1].type == EQUAL) continue; // just to skip equals
+        // skip these things
+        if(line[0].type == PERIOD) continue;
+        if(line.size() > 1 && line[1].type == EQUAL) continue;
 
         unsigned int mnemonic_location = 0;
         if(line.size() > 1 && line[1].type == COLON){
@@ -386,7 +401,7 @@ int main(int argc, char *argv[]){
             index += get_opcode_byte_count(entry);
             entry.operand == OP_STRING_REF? index += convert_string(line[mnemonic_location + 1].text).length() : 0;
 
-            vector<token> args = get_arguments(line, mnemonic_location); // this gets arguments and also makes sure they're separated by commas
+            std::vector<token> args = get_arguments(line, mnemonic_location); // this gets arguments and also makes sure they're separated by commas
             switch(entry.operand){
                 case OP_NONE: {
                     check_arg_number(0, args);
@@ -422,7 +437,7 @@ int main(int argc, char *argv[]){
                     check_arg_number(1, args);
                     compiled_data.push_back(entry.opcode);
 
-                    string label_name = args[0].text;
+                    std::string label_name = args[0].text;
                     auto sb = find_label(label_name, symbol_table);
                     if(sb.label_name == label_name && sb.script_index == static_cast<unsigned int>(script_index)){
                         compiled_data.push_back(static_cast<int8_t>(sb.index - index)); // we want the negative bit
@@ -450,7 +465,7 @@ int main(int argc, char *argv[]){
                         cerr << "Error: Not a string." << endl;
                     }
                     compiled_data.push_back(entry.opcode);
-                    string converted_string = convert_string(args[0].text);
+                    std::string converted_string = convert_string(args[0].text);
                     for(char c : converted_string){
                         compiled_data.push_back(c);
                     }
@@ -465,7 +480,7 @@ int main(int argc, char *argv[]){
     }
     
     // done compiling, let's put everything in the output file
-    ofstream file_out(out_path, ios::binary);
+    std::ofstream file_out(out_path, std::ios_base::binary);
 
     file_out.put(script_list.size()); // number of scripts
 
@@ -482,7 +497,7 @@ int main(int argc, char *argv[]){
     file_out.close();
 
     if(!script_list_path.empty()){
-        ofstream script_file(script_list_path);
+        std::ofstream script_file(script_list_path);
         for(auto scr : script_list){
             script_file << scr.script_name << endl;
         }
