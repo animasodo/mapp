@@ -199,7 +199,7 @@ int convert_arg_to_num(token arg, std::vector<declaration> table){
         if(!dec.name.empty()){
             num = stoi(dec.content);
         }else{
-            cout << "Error: The token cannot be translated into a number." << endl;
+            cout << "Error: The token '" << arg.text << "' cannot be translated into a number." << endl;
             exit(1);
         }
     }
@@ -318,8 +318,9 @@ int main(int argc, char *argv[]){
                 continue;
             }else if(line[1].text == "declare"){
                 if(line.size() != 4) { cerr << "Error: Declaration is not correctly formed." << endl; return 1; }
-
+                
                 declaration_table.push_back({line[2].text, line[3].text});
+                continue;
             }else if(line[1].text == "include"){
                 if(line.size() != 3) { cerr << "Error: Include directive is not correctly formed." << endl; return 1; }
 
@@ -332,9 +333,9 @@ int main(int argc, char *argv[]){
                 std::vector<std::vector<token>> tokenized_include = tokenize_file(included_file);
                 included_file.close();
 
-                auto insert_index = i;
+                auto insert_index = i + 1;
                 for(auto include_line : tokenized_include) tokenized_code.insert(tokenized_code.begin() + insert_index++, include_line);
-
+                continue;
             }else{
                 cerr << "Error: Unknown directive." << endl;
                 return 1;
